@@ -1,31 +1,55 @@
-import { useRef } from "react";
+import { useRef, useMemo } from "react";
 import { useFrame, extend } from "@react-three/fiber";
-import { Icosahedron, shaderMaterial } from "@react-three/drei";
+import { shaderMaterial } from "@react-three/drei";
 import * as THREE from "three";
 
 const GradientMaterial = shaderMaterial(
   {
     uColorA: new THREE.Color("#f49ba9"),
     uColorB: new THREE.Color("#aae1f4"),
+    uLightDir: new THREE.Vector3(0.5, 1.0, 0.8).normalize(),
   },
-  // Vertex Shader: 頂点ごとの位置情報をFragment Shaderに渡す
+  // Vertex Shader: ライティング計算をすべて頂点シェーダーで完結させる
   `
-  varying vec3 vPosition;
+  uniform vec3 uColorA;
+  uniform vec3 uColorB;
+  uniform vec3 uLightDir;
+  varying vec3 vColor;
+
   void main() {
-    vPosition = position;
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vec3 worldNormal = normalize(mat3(modelMatrix) * normal);
+    vec3 viewDir = normalize(cameraPosition - worldPos.xyz);
+
+    // y座標に基づくグラデーション
+    float mixStrength = (position.y + 1.3) / 2.6;
+    vec3 baseColor = mix(uColorB, uColorA, clamp(mixStrength, 0.0, 1.0));
+
+    // Half-Lambert ディフューズ
+    float diffuse = dot(worldNormal, uLightDir) * 0.5 + 0.5;
+
+    // フレネルリムライト
+    float fresnel = 1.0 - abs(dot(viewDir, worldNormal));
+    fresnel = fresnel * fresnel * fresnel;
+
+    // Blinn-Phong スペキュラ
+    vec3 halfDir = normalize(uLightDir + viewDir);
+    float specular = pow(max(dot(worldNormal, halfDir), 0.0), 64.0);
+
+    // 合成
+    vColor = baseColor * (0.65 + 0.35 * diffuse);
+    vColor += fresnel * 0.2;
+    vColor += specular * 0.15;
+
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
   `,
-  // Fragment Shader: 座標(y軸)に基づいて色を線形補間する
+  // Fragment Shader: 頂点カラーをそのまま出力（per-pixel計算なし）
   `
-  varying vec3 vPosition;
-  uniform vec3 uColorA;
-  uniform vec3 uColorB;
+  varying vec3 vColor;
+
   void main() {
-    // y座標（-1.3 〜 1.3）を 0.0 〜 1.0 の範囲に変換
-    float mixStrength = (vPosition.y + 1.3) / 2.6;
-    vec3 color = mix(uColorB, uColorA, clamp(mixStrength, 0.0, 1.0));
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(vColor, 1.0);
   }
   `
 );
@@ -34,6 +58,17 @@ extend({ GradientMaterial });
 
 export function Polyhedron() {
   const groupRef = useRef<THREE.Group>(null);
+
+  // フラット法線を持つ非インデックスジオメトリを一度だけ生成
+  const solidGeo = useMemo(() => {
+    const geo = new THREE.IcosahedronGeometry(1.3, 0).toNonIndexed();
+    geo.computeVertexNormals();
+    return geo;
+  }, []);
+
+  const wireGeo = useMemo(() => {
+    return new THREE.IcosahedronGeometry(1.5, 0);
+  }, []);
 
   useFrame((state) => {
     if (groupRef.current) {
@@ -44,14 +79,14 @@ export function Polyhedron() {
 
   return (
     <group ref={groupRef}>
-      <Icosahedron args={[1.3, 0]}>
+      <mesh geometry={solidGeo}>
         {/* @ts-ignore */}
         <gradientMaterial />
-      </Icosahedron>
+      </mesh>
 
-      <Icosahedron args={[1.5, 0]}>
-        <meshBasicMaterial color="#ffffff" wireframe={true} transparent opacity={0.5} />
-      </Icosahedron>
+      <mesh geometry={wireGeo}>
+        <meshBasicMaterial color="#ffffff" wireframe transparent opacity={0.5} />
+      </mesh>
     </group>
   );
 }

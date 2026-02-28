@@ -49,7 +49,7 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   const topLineRef = useRef<SVGPathElement>(null);
   const timeBlockRef = useRef<HTMLDivElement>(null);
   const timeTextRef = useRef<HTMLDivElement>(null);
-  // const bottomRulerRef = useRef<HTMLDivElement>(null);  // 次回以降追加
+  const ticksRef = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     // refがまだない場合（初回レンダリングでviewportHeightが0の時など）はスキップ
@@ -91,7 +91,7 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
         ease: "power2.inOut",
       }, "topLineStart");
 
-      // --- 〇 時刻表示のスキャナーアニメーション ---
+      // --- 時刻表示のスキャナーアニメーション ---
       gsap.set(timeBlockRef.current, { left: "0%", right: "100%" });
       gsap.set(timeTextRef.current, { clipPath: "inset(0% 100% 0% 0%)", opacity: 1 });
 
@@ -137,6 +137,21 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
         repeatDelay: 2.0,
         delay: 1.7,
       });
+
+      // --- 下部メジャー（目盛り）の波及アニメーション ---
+      // 中央を基点に上下へ伸びる
+      gsap.set(ticksRef.current, { scaleY: 0, transformOrigin: "center center" });
+
+      hudTimeline.to(ticksRef.current, {
+        scaleY: 1,
+        duration: 0.6,
+        ease: "back.out(1.5)",
+        stagger: {
+          amount: 0.5,
+          from: "center",
+        }
+      }, "topLineStart+=0.4");
+
     });
 
     // コンポーネントのアンマウント時、または依存配列が更新された時に、
@@ -282,7 +297,8 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
       </div>
 
       {/* Bottom: Angle Measure */}
-      <div className="absolute bottom-5 left-[27%] right-5">
+      <div className="absolute bottom-8 left-16 right-16 max-w-3xl mx-auto">
+
         {/* Top line with time marker */}
         <div className="relative mb-0.5">
           <div className="h-[0.5px] bg-black opacity-12"></div>
@@ -291,39 +307,99 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
           </div>
         </div>
 
-        {/* Angle display */}
-        <div className="relative h-4 flex items-center mb-0.5">
-          <div className="text-[8.5px] opacity-55 absolute left-0 tracking-wide">
-            {rotation}°
-          </div>
-          <div className="text-[7.5px] opacity-28 absolute tracking-wide" style={{ left: '37%' }}>
-            {rotation + 340}°
-          </div>
-        </div>
+        {/* カメラの座標(x, z)からアジマス角（旋回角）を計算。
+          Math.atan2 は -180度 〜 180度（-PI 〜 PI）の値を安定して返します。
+        */}
+        {(() => {
+          const azimuth = cameraPosition ? Math.atan2(cameraPosition.x, cameraPosition.z) : 0;
+          const azimuthDeg = azimuth * (180 / Math.PI);
 
-        {/* Main measure line with ticks */}
-        <div className="relative h-4">
-          <div className="absolute bottom-0 left-0 right-0 h-[0.5px] bg-black opacity-18"></div>
-          {/* Generate tick marks */}
-          {Array.from({ length: 65 }).map((_, i) => {
-            const isLong = i % 10 === 0;
-            const isMedium = i % 5 === 0;
-            let height = '2.5px';
-            if (isLong) height = '11px';
-            else if (isMedium) height = '6px';
+          // 表示用に 0〜360度 の範囲に正規化
+          let displayHeading = Math.round(azimuthDeg);
+          if (displayHeading < 0) displayHeading += 360;
 
-            return (
-              <div
-                key={i}
-                className="absolute bottom-0 w-[0.5px] bg-black opacity-18"
-                style={{
-                  left: `${(i / 65) * 100}%`,
-                  height: height,
-                }}
-              />
-            );
-          })}
-        </div>
+          return (
+            <>
+              {/* Angle display */}
+              <div className="relative h-4 flex items-center mb-0.5">
+                <div className="text-[8.5px] opacity-55 absolute left-0 tracking-wide">
+                  {displayHeading}°
+                </div>
+                <div className="text-[7.5px] opacity-28 absolute tracking-wide" style={{ left: '37%' }}>
+                  {/* サブの角度表示も360度でループするように修正 */}
+                  {(displayHeading + 340) % 360}°
+                </div>
+              </div>
+
+              {/* Main measure line with sliding ticks — 無限ループ・スムーズ版 */}
+              {(() => {
+                // 1度あたりのpx幅
+                const PX_PER_DEG = 6.66;
+                // 描画する目盛りの総数：3周分（-360°〜+360°、計721本）
+                // これにより azimuthDeg がどの値でも帯の端が画面に入らない
+                const TOTAL_TICKS = 721;
+                const HALF_TICKS = 360; // 中央インデックス
+
+                return (
+                  <div
+                    className="relative h-4 mt-2 overflow-hidden"
+                    style={{
+                      WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100%)',
+                      maskImage: 'linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100%)',
+                    }}
+                  >
+                    {/*
+                      コンテナ全体を azimuthDeg × PX_PER_DEG だけ左にずらす。
+                      実数をそのまま使うので小数点以下も滑らかに反映され、ガタつきゼロ。
+                      目盛り自体は固定グリッドなので再レンダリング時も位置が一定。
+                    */}
+                    <div
+                      className="absolute inset-y-0"
+                      style={{
+                        // 中央基点: コンテナ幅の50% から帯の中心(HALF_TICKS番目)を引く
+                        left: `calc(50% - ${HALF_TICKS * PX_PER_DEG}px)`,
+                        width: `${TOTAL_TICKS * PX_PER_DEG}px`,
+                        transform: `translateX(${-azimuthDeg * PX_PER_DEG}px)`,
+                      }}
+                    >
+                      {Array.from({ length: TOTAL_TICKS }, (_, i) => {
+                        // このtickが表す絶対角度（-360°〜+360°）
+                        const deg = i - HALF_TICKS;
+                        // 0〜359でループするラベル用角度
+                        const absDeg = ((deg % 360) + 360) % 360;
+
+                        const isLong = absDeg % 10 === 0;
+                        const isMedium = absDeg % 5 === 0;
+
+                        let heightPx = 3;
+                        let opacityClass = 'opacity-30';
+                        if (isLong) { heightPx = 12; opacityClass = 'opacity-70'; }
+                        else if (isMedium) { heightPx = 7; opacityClass = 'opacity-50'; }
+
+                        return (
+                          <div
+                            key={i}
+                            // @ts-ignore
+                            ref={(el) => (ticksRef.current[i] = el)}
+                            className={`absolute w-[0.5px] bg-black ${opacityClass}`}
+                            style={{
+                              // 固定グリッド上の左位置
+                              left: `${i * PX_PER_DEG}px`,
+                              // 垂直中央揃え: 中心から上下均等に伸びる
+                              top: '50%',
+                              height: `${heightPx}px`,
+                              transform: 'translateY(-50%)',
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </>
+          );
+        })()}
       </div>
     </div>
   );
