@@ -297,77 +297,70 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
       </div>
 
       {/* Bottom: Angle Measure */}
-      <div className="absolute bottom-8 left-16 right-16 max-w-3xl mx-auto">
+      <div className="absolute bottom-8 left-8 right-8 max-w-5xl mx-auto">
 
-        {/* Top line with time marker */}
+        {/* Top line */}
         <div className="relative mb-0.5">
           <div className="h-[0.5px] bg-black opacity-12"></div>
-          <div className="absolute right-0 -top-2.5 text-[7.5px] opacity-30 tracking-wide">
+          {/* <div className="absolute right-0 -top-2.5 text-[7.5px] opacity-30 tracking-wide">
             {formatTime(currentTime)}
-          </div>
+          </div> */}
         </div>
 
-        {/* カメラの座標(x, z)からアジマス角（旋回角）を計算。
-          Math.atan2 は -180度 〜 180度（-PI 〜 PI）の値を安定して返します。
-        */}
+        {/* カメラの座標から各平面の角度を計算 */}
         {(() => {
-          const azimuth = cameraPosition ? Math.atan2(cameraPosition.x, cameraPosition.z) : 0;
-          const azimuthDeg = azimuth * (180 / Math.PI);
+          // --- 1. X-Z平面の角度（メイン・目盛りスライド用） ---
+          const azimuthXZ = cameraPosition ? Math.atan2(cameraPosition.x, cameraPosition.z) : 0;
+          const azimuthDegXZ = azimuthXZ * (180 / Math.PI);
 
-          // 表示用に 0〜360度 の範囲に正規化
-          let displayHeading = Math.round(azimuthDeg);
-          if (displayHeading < 0) displayHeading += 360;
+          let displayHeadingXZ = Math.round(azimuthDegXZ);
+          if (displayHeadingXZ < 0) displayHeadingXZ += 360;
+
+          // --- 2. X-Y平面の角度（左端のテキスト表示用） ---
+          const azimuthXY = cameraPosition ? Math.atan2(cameraPosition.y, cameraPosition.x) : 0;
+          let displayHeadingXY = Math.round(azimuthXY * (180 / Math.PI));
+          if (displayHeadingXY < 0) displayHeadingXY += 360;
 
           return (
             <>
               {/* Angle display */}
               <div className="relative h-4 flex items-center mb-0.5">
-                <div className="text-[8.5px] opacity-55 absolute left-0 tracking-wide">
-                  {displayHeading}°
+                <div className="text-[7.5px] opacity-28 absolute left-0 tracking-wide flex items-baseline gap-[2px]">
+                  {/* <span className="text-[8.5px] opacity-70">x-y:</span> */}
+                  <span>{displayHeadingXY}°</span>
                 </div>
-                <div className="text-[7.5px] opacity-28 absolute tracking-wide" style={{ left: '37%' }}>
-                  {/* サブの角度表示も360度でループするように修正 */}
-                  {(displayHeading + 340) % 360}°
+
+                {/* 中央：X-Zの旋回角（スライド目盛りと連動する値） */}
+                <div className="text-[7.5px] opacity-28 absolute tracking-wide" style={{ left: '50%', transform: 'translateX(-50%)' }}>
+                  {displayHeadingXZ}°
                 </div>
               </div>
 
-              {/* Main measure line with sliding ticks — 無限ループ・スムーズ版 */}
+              {/* Main measure line with sliding ticks */}
               {(() => {
-                // 1度あたりのpx幅
                 const PX_PER_DEG = 6.66;
-                // 描画する目盛りの総数：3周分（-360°〜+360°、計721本）
-                // これにより azimuthDeg がどの値でも帯の端が画面に入らない
                 const TOTAL_TICKS = 721;
-                const HALF_TICKS = 360; // 中央インデックス
+                const HALF_TICKS = 360;
 
                 return (
                   <div
                     className="relative h-4 mt-2 overflow-hidden"
                     style={{
-                      WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100%)',
-                      maskImage: 'linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100%)',
+                      WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%)',
+                      maskImage: 'linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%)',
                     }}
                   >
-                    {/*
-                      コンテナ全体を azimuthDeg × PX_PER_DEG だけ左にずらす。
-                      実数をそのまま使うので小数点以下も滑らかに反映され、ガタつきゼロ。
-                      目盛り自体は固定グリッドなので再レンダリング時も位置が一定。
-                    */}
                     <div
                       className="absolute inset-y-0"
                       style={{
-                        // 中央基点: コンテナ幅の50% から帯の中心(HALF_TICKS番目)を引く
                         left: `calc(50% - ${HALF_TICKS * PX_PER_DEG}px)`,
                         width: `${TOTAL_TICKS * PX_PER_DEG}px`,
-                        transform: `translateX(${-azimuthDeg * PX_PER_DEG}px)`,
+                        transform: `translateX(${-azimuthDegXZ * PX_PER_DEG}px)`,
                       }}
                     >
                       {Array.from({ length: TOTAL_TICKS }, (_, i) => {
-                        // このtickが表す絶対角度（-360°〜+360°）
                         const deg = i - HALF_TICKS;
-                        // 0〜359でループするラベル用角度
                         const absDeg = ((deg % 360) + 360) % 360;
-
                         const isLong = absDeg % 10 === 0;
                         const isMedium = absDeg % 5 === 0;
 
@@ -383,9 +376,7 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
                             ref={(el) => (ticksRef.current[i] = el)}
                             className={`absolute w-[0.5px] bg-black ${opacityClass}`}
                             style={{
-                              // 固定グリッド上の左位置
                               left: `${i * PX_PER_DEG}px`,
-                              // 垂直中央揃え: 中心から上下均等に伸びる
                               top: '50%',
                               height: `${heightPx}px`,
                               transform: 'translateY(-50%)',
