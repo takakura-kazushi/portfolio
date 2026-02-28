@@ -11,6 +11,7 @@ interface HUDProps {
 export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [viewportHeight, setViewportHeight] = useState(0);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   // --- HUDラインの座標計算 ---
   // 1. 開始位置（上からの余白）
@@ -21,8 +22,7 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   const bendSize = 25;
   // 4. 2回目の直線の終わり
   const bend2Y = Math.max(bend1Y + bendSize + 60, viewportHeight - 120);
-
-  // 2. パスデータを変数化（2つの線で完全に同じ軌道を通らせるため）
+  // パスデータを変数化
   const leftPathData = `
     M 0,${startY} 
     L 0,${bend1Y} 
@@ -31,9 +31,24 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
     L 0,${bend2Y + bendSize}
   `;
 
+  // --- HUDラインの座標計算（上部） ---
+  const topStartX = 70;
+  const topStartY = Math.min(80, viewportHeight * 0.1);
+  const topBendX = Math.max(topStartX + 50, viewportWidth - 100);
+  const topBendSize = Math.min(30, (viewportWidth - topStartX - 20) / 2);
+  const topPathData = `
+    M ${topStartX},${topStartY}
+    L ${topBendX},${topStartY}
+    L ${topBendX + topBendSize},${topStartY - topBendSize}
+  `;
+
+
+
   const leftLineRef = useRef<SVGPathElement>(null);
   const leftDashRef = useRef<SVGPathElement>(null);
-  // const topLineRef = useRef<HTMLDivElement>(null);      // 次回以降追加
+  const topLineRef = useRef<SVGPathElement>(null);
+  const timeBlockRef = useRef<HTMLDivElement>(null);
+  const timeTextRef = useRef<HTMLDivElement>(null);
   // const bottomRulerRef = useRef<HTMLDivElement>(null);  // 次回以降追加
 
   useEffect(() => {
@@ -48,7 +63,7 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
       // HUD起動シークエンス用のタイムラインを作成
       const hudTimeline = gsap.timeline({ delay: 0.2 });
 
-      // --- ① ベースの線（黒）のセットアップとアニメーション ---
+      // --- ベースの線（黒）のセットアップとアニメーション（左） ---
       gsap.set(leftLineRef.current, {
         strokeDasharray: leftLineLength,
         strokeDashoffset: leftLineLength,
@@ -60,7 +75,49 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
         ease: "power2.inOut",
       });
 
-      // --- ② 切れ目（白）の無限ループアニメーション ---
+
+
+      // --- 〇 ベースの線（黒・上部）の追加 ---
+      const topLength = topLineRef.current!.getTotalLength();
+      gsap.set(topLineRef.current, {
+        strokeDasharray: topLength,
+        strokeDashoffset: topLength,
+      });
+      hudTimeline.addLabel("topLineStart", "-=0.8");
+
+      hudTimeline.to(topLineRef.current, {
+        strokeDashoffset: 0,
+        duration: 1.2,
+        ease: "power2.inOut",
+      }, "topLineStart");
+
+      // --- 〇 時刻表示のスキャナーアニメーション ---
+      gsap.set(timeBlockRef.current, { left: "0%", right: "100%" });
+      gsap.set(timeTextRef.current, { clipPath: "inset(0% 100% 0% 0%)", opacity: 1 });
+
+      // 1. ブロックの「右端」が伸びる（線のスタートから 0.6秒後 に開始）
+      hudTimeline.to(timeBlockRef.current, {
+        right: "0%",
+        duration: 0.4,
+        ease: "power2.inOut",
+      }, "topLineStart+=0.6");
+
+      // 2. ブロックの「左端」が縮む（線のスタートから 0.8秒後 に開始）
+      // ⇒ 0.8秒 + 0.4秒 = 1.2秒（線のアニメーション完了と1ミリ秒のズレもなく同時に完了する）
+      hudTimeline.to(timeBlockRef.current, {
+        left: "100%",
+        duration: 0.4,
+        ease: "power2.inOut",
+      }, "topLineStart+=0.8");
+
+      // 3. 文字の表示（左端の移動と完全に同期）
+      hudTimeline.to(timeTextRef.current, {
+        clipPath: "inset(0% 0% 0% 0%)",
+        duration: 0.4,
+        ease: "power2.inOut",
+      }, "topLineStart+=0.8");
+
+      // --- 切れ目（白）の無限ループアニメーション(左) ---
       const dashLength = 15;
 
       // 初期位置：dashLength
@@ -96,15 +153,16 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   }, []);
 
   useEffect(() => {
-    const updateHeight = () => {
+    const updateDimensions = () => {
       if (containerRef.current) {
         setViewportHeight(containerRef.current.clientHeight);
+        setViewportWidth(containerRef.current.clientWidth);
       }
     };
 
-    updateHeight();
-    window.addEventListener('resize', updateHeight);
-    return () => window.removeEventListener('resize', updateHeight);
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
   // Format time as YYYY.MM.DD.HHmm
@@ -127,15 +185,12 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   return (
     <div ref={containerRef} className="absolute inset-0 z-10 pointer-events-none font-mono text-[8.5px] text-black">
       {/* Top-Left: Coordinates - Vertical Text */}
-      {/* coordinatesのラベル（線のやや左側） */}
       <div
         className="absolute top-8 left-[4px] opacity-40 text-[7px] tracking-widest"
         style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
       >
         coordinates
       </div>
-
-      {/* 座標の数値（線の真上：left-4でSVGとX座標を完全に一致させる） */}
       <div
         className="absolute top-8 left-4 opacity-70 tracking-wide text-[8.5px]"
         style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
@@ -144,10 +199,45 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
           ? `${formatCoord(cameraPosition.x)} ・ ${formatCoord(cameraPosition.y)} ・ ${formatCoord(cameraPosition.z)}`
           : "0.000 ・ 0.000 ・ 0.000"}
       </div>
+      {/* Top Edge: Horizontal Decorative Line */}
+      {viewportWidth > 0 && (
+        <svg className="absolute top-0 left-0 w-full h-[60px] opacity-65 pointer-events-none overflow-visible">
+          <path
+            ref={topLineRef}
+            d={topPathData}
+            fill="none"
+            stroke="#1A1B25"
+            strokeWidth="0.5"
+          />
+        </svg>
+      )}
 
       {/* Top-Right: Time */}
-      <div className="absolute top-3 right-5 opacity-65 tracking-wide text-[8.5px]">
-        {formatTime(currentTime)}
+      <div
+        className="absolute tracking-wide text-[8.5px]"
+        style={{
+          left: `${topBendX - 10}px`,
+          top: `${topStartY - 20}px`,
+          transform: 'translateX(-100%)'
+        }}
+      >
+        <div className="relative flex items-center px-1 py-0.5 -mx-1 -my-0.5">
+
+          <div
+            ref={timeBlockRef}
+            className="absolute inset-0 bg-[#1A1B25] z-10"
+          // ※style={{ margin: '-2px -4px' }} は削除しました
+          ></div>
+
+          <div
+            ref={timeTextRef}
+            className="flex items-center gap-1.5 opacity-65"
+          >
+            <span className="w-[1px] h-[9px] bg-black opacity-50 block"></span>
+            <span>{formatTime(currentTime)}</span>
+          </div>
+
+        </div>
       </div>
 
       {/* Left Edge: 4-bend Decorative Line */}
@@ -166,7 +256,7 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
             d={leftPathData}
             fill="none"
             stroke="#ffffff" // 背景色と同じ白
-            // ベースの線より少しだけ太くすることで、アンチエイリアスのグレーのフチが残るのを防ぎます
+            // ベースの線より少しだけ太くすることで、アンチエイリアスのグレーのフチが残るのを防止
             strokeWidth="1.0"
           />
 
