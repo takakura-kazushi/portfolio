@@ -15,12 +15,12 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   // --- HUDラインの座標計算 ---
   // 1. 開始位置（上からの余白）
   const startY = 220; // 75px from the top
-  // 2. 1回目の直線の終わり（画面高さの約25%）
-  const bend1Y = viewportHeight * 0.25;
+  // 2. 1回目の直線の終わり
+  const bend1Y = Math.max(startY + 60, viewportHeight * 0.25);
   // 3. 45度曲がる距離（X・Yともに25px移動）
   const bendSize = 25;
   // 4. 2回目の直線の終わり
-  const bend2Y = viewportHeight - 120;
+  const bend2Y = Math.max(bend1Y + bendSize + 60, viewportHeight - 120);
 
   // 2. パスデータを変数化（2つの線で完全に同じ軌道を通らせるため）
   const leftPathData = `
@@ -63,14 +63,14 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
       // --- ② 切れ目（白）の無限ループアニメーション ---
       const dashLength = 15;
 
-      // 【修正箇所1】初期位置：dashLength
+      // 初期位置：dashLength
       // 切れ目の長さ分だけオフセットをプラスにすることで、パスの始点より「15px手前（画面外）」に切れ目を待機させます。
       gsap.set(leftDashRef.current, {
         strokeDasharray: `${dashLength} ${leftLineLength}`,
         strokeDashoffset: dashLength,
       });
 
-      // 【修正箇所2】終点位置：-leftLineLength
+      // 終点位置：-leftLineLength
       // オフセットをマイナス全長分にすることで、パスの終点より「後ろ（画面外）」まで完全に移動し切るようにします。
       gsap.to(leftDashRef.current, {
         strokeDashoffset: -leftLineLength,
@@ -127,29 +127,22 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   return (
     <div ref={containerRef} className="absolute inset-0 z-10 pointer-events-none font-mono text-[8.5px] text-black">
       {/* Top-Left: Coordinates - Vertical Text */}
+      {/* coordinatesのラベル（線のやや左側） */}
       <div
-        className="absolute top-3 left-3 opacity-65 tracking-wide"
-        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', letterSpacing: '0.08em' }}
-      >
-        {cameraPosition ? formatCoord(cameraPosition.x) : "0.000"}
-      </div>
-      <div
-        className="absolute top-3 left-[26px] opacity-65 tracking-wide"
-        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', letterSpacing: '0.08em' }}
-      >
-        {cameraPosition ? formatCoord(cameraPosition.y) : "0.000"}
-      </div>
-      <div
-        className="absolute top-3 left-[43px] opacity-65 tracking-wide"
-        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', letterSpacing: '0.08em' }}
-      >
-        {cameraPosition ? formatCoord(cameraPosition.z) : "0.000"}
-      </div>
-      <div
-        className="absolute top-3 left-[60px] opacity-35 text-[7px] tracking-wide"
-        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', letterSpacing: '0.12em' }}
+        className="absolute top-8 left-[4px] opacity-40 text-[7px] tracking-widest"
+        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
       >
         coordinates
+      </div>
+
+      {/* 座標の数値（線の真上：left-4でSVGとX座標を完全に一致させる） */}
+      <div
+        className="absolute top-8 left-4 opacity-70 tracking-wide text-[8.5px]"
+        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+      >
+        {cameraPosition
+          ? `${formatCoord(cameraPosition.x)} ・ ${formatCoord(cameraPosition.y)} ・ ${formatCoord(cameraPosition.z)}`
+          : "0.000 ・ 0.000 ・ 0.000"}
       </div>
 
       {/* Top-Right: Time */}

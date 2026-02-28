@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, TrackballControls } from "@react-three/drei";
 import { Polyhedron } from "@/components/core/Polyhedron";
 import { CameraTracker } from "@/components/core/CameraTracker";
 import { HUD } from "@/components/layout/HUD";
@@ -22,7 +22,7 @@ export default function RightCanvasArea() {
   return (
     // flex-1 で親のflexコンテナの余った幅をすべて占有します
     <div className="flex-1 relative h-full bg-white">
-      
+
       {/* HUDレイヤー */}
       <HUD cameraPosition={cameraPosition} cameraRotation={cameraRotation} />
 
@@ -32,7 +32,14 @@ export default function RightCanvasArea() {
           <color attach="background" args={["#ffffff"]} />
           {/* 光の計算を行わない軽量なマテリアルを使用しているため、Lightは不要です */}
           <Polyhedron />
-          <OrbitControls enableZoom={true} enablePan={false} />
+          {/* <OrbitControls enableZoom={true} enablePan={false} /> */}
+          <TrackballControls
+            noPan={true}
+            minDistance={3.0}
+            maxDistance={10}
+            dynamicDampingFactor={0.05}
+            rotateSpeed={1.5}
+          />
           <CameraTracker onUpdate={handleCameraUpdate} />
         </Canvas>
       </div>
