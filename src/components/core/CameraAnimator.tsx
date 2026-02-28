@@ -5,20 +5,11 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { usePortfolio } from "@/components/contexts/PortfolioContext";
 
-/**
- * CameraAnimator — ロックオン時のカメラ制御
- *
- * 設計方針:
- *   ロックオン中は controls.update を no-op に差し替えることで
- *   TrackballControls との競合を完全に排除する。
- *   priority 引数を使わない（= R3F の自動レンダリングを維持）。
- */
-
 type Phase = "idle" | "transition-in" | "tracking" | "transition-out";
 
-const LERP_K = 3;            // 指数補間の速度係数
-const IN_THRESHOLD = 0.1;    // 遷移イン到着判定
-const OUT_THRESHOLD = 0.05;  // 遷移アウト到着判定
+const LERP_K = 4;
+const IN_THRESHOLD = 0.05;
+const OUT_THRESHOLD = 0.05;
 
 export function CameraAnimator({ controlsRef }: { controlsRef: any }) {
     const { activeSection } = usePortfolio();
@@ -28,34 +19,33 @@ export function CameraAnimator({ controlsRef }: { controlsRef: any }) {
     const lockedSection = useRef<string | null>(null);
     const savedPos = useRef(new THREE.Vector3());
     const savedTarget = useRef(new THREE.Vector3());
+    const savedUp = useRef(new THREE.Vector3());
     const savedUpdate = useRef<(() => void) | null>(null);
     const tmpV = useRef(new THREE.Vector3());
     const tmpL = useRef(new THREE.Vector3());
+    const tmpUp = useRef(new THREE.Vector3());
 
     useFrame((_, delta) => {
         const controls = controlsRef.current;
         if (!controls) return;
 
-        /* ===== 状態遷移の検出 ===== */
-
-        // (A) ロックオン要求 — idle or 復帰中に新セクションが選択された
+        // (A) ロックオン要求
         if (
             activeSection &&
             (phase.current === "idle" || phase.current === "transition-out")
         ) {
             if (phase.current === "idle") {
-                // 初回: カメラ状態を退避し controls.update を無力化
                 savedPos.current.copy(camera.position);
                 savedTarget.current.copy(controls.target);
+                savedUp.current.copy(camera.up);
                 savedUpdate.current = controls.update;
                 controls.update = () => { };
             }
-            // transition-out 中なら saved* / update 無効化は既にセット済み
             lockedSection.current = activeSection;
             phase.current = "transition-in";
         }
 
-        // (B) ロックオン中にセクション変更
+        // (B) セクション変更
         if (
             activeSection &&
             lockedSection.current &&
@@ -75,32 +65,33 @@ export function CameraAnimator({ controlsRef }: { controlsRef: any }) {
             phase.current = "transition-out";
         }
 
-        /* ===== フェーズ実行 ===== */
-
         // ── 遷移イン / 追従 ──
         if (phase.current === "transition-in" || phase.current === "tracking") {
-            const camA = scene.getObjectByName(
-                `camera-anchor-${lockedSection.current}`
-            );
-            const lookA = scene.getObjectByName(
-                `look-anchor-${lockedSection.current}`
-            );
-            if (!camA || !lookA) return;
+            const camA = scene.getObjectByName(`camera-anchor-${lockedSection.current}`);
+            const lookA = scene.getObjectByName(`look-anchor-${lockedSection.current}`);
+            const upA = scene.getObjectByName(`up-anchor-${lockedSection.current}`);
+
+            if (!camA || !lookA || !upA) return;
 
             camA.getWorldPosition(tmpV.current);
             lookA.getWorldPosition(tmpL.current);
+            upA.getWorldPosition(tmpUp.current);
+
+            // 多面体の回転に合わせた理想のUpベクトルを算出
+            const targetUp = tmpUp.current.sub(tmpV.current).normalize();
 
             if (phase.current === "transition-in") {
                 const t = 1 - Math.exp(-LERP_K * delta);
                 camera.position.lerp(tmpV.current, t);
-                camera.up.set(0, 1, 0);
+                camera.up.lerp(targetUp, t).normalize(); // カメラの天地も同期させる
                 camera.lookAt(tmpL.current);
+
                 if (camera.position.distanceTo(tmpV.current) < IN_THRESHOLD) {
                     phase.current = "tracking";
                 }
             } else {
                 camera.position.copy(tmpV.current);
-                camera.up.set(0, 1, 0);
+                camera.up.copy(targetUp); // 完全追従時は値をコピー
                 camera.lookAt(tmpL.current);
             }
             return;
@@ -110,17 +101,15 @@ export function CameraAnimator({ controlsRef }: { controlsRef: any }) {
         if (phase.current === "transition-out") {
             const t = 1 - Math.exp(-LERP_K * delta);
             camera.position.lerp(savedPos.current, t);
-            camera.up.set(0, 1, 0);
+            camera.up.lerp(savedUp.current, t).normalize(); // 天地を元に戻す
             camera.lookAt(savedTarget.current);
 
             if (camera.position.distanceTo(savedPos.current) < OUT_THRESHOLD) {
-                // 到着: カメラ位置を確定し controls を復帰
                 camera.position.copy(savedPos.current);
-                camera.up.set(0, 1, 0);
+                camera.up.copy(savedUp.current);
                 camera.lookAt(savedTarget.current);
                 controls.target.copy(savedTarget.current);
 
-                // controls.update を元に戻す
                 if (savedUpdate.current) {
                     controls.update = savedUpdate.current;
                     savedUpdate.current = null;
@@ -129,7 +118,7 @@ export function CameraAnimator({ controlsRef }: { controlsRef: any }) {
                 phase.current = "idle";
             }
         }
-    }); // ← priority 引数なし → R3F の自動レンダリングを阻害しない
+    });
 
     return null;
 }
