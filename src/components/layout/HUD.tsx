@@ -50,17 +50,18 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
   const timeBlockRef = useRef<HTMLDivElement>(null);
   const timeTextRef = useRef<HTMLDivElement>(null);
   const ticksRef = useRef<(HTMLDivElement | null)[]>([]);
+  const innerTrianglesRef = useRef<(SVGSVGElement | null)[]>([]);
+  const outerTrianglesRef = useRef<(SVGSVGElement | null)[]>([]);
 
   useEffect(() => {
     // refがまだない場合（初回レンダリングでviewportHeightが0の時など）はスキップ
     if (!leftLineRef.current || !leftDashRef.current) return;
 
     // Reactの再レンダリング時にアニメーションが重複・競合するのを防ぐため、
-    // gsap.context() で囲み、クリーンアップ可能にします。
+    // gsap.context() で囲み、クリーンアップ可能にする
     const ctx = gsap.context(() => {
       const leftLineLength = leftLineRef.current!.getTotalLength();
 
-      // HUD起動シークエンス用のタイムラインを作成
       const hudTimeline = gsap.timeline({ delay: 0.2 });
 
       // --- ベースの線（黒）のセットアップとアニメーション（左） ---
@@ -77,7 +78,7 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
 
 
 
-      // --- 〇 ベースの線（黒・上部）の追加 ---
+      // --- ベースの線（黒・上部） ---
       const topLength = topLineRef.current!.getTotalLength();
       gsap.set(topLineRef.current, {
         strokeDasharray: topLength,
@@ -91,26 +92,25 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
         ease: "power2.inOut",
       }, "topLineStart");
 
-      // --- 時刻表示のスキャナーアニメーション ---
+      // --- 時刻表示のブロックリビール ---
       gsap.set(timeBlockRef.current, { left: "0%", right: "100%" });
       gsap.set(timeTextRef.current, { clipPath: "inset(0% 100% 0% 0%)", opacity: 1 });
 
-      // 1. ブロックの「右端」が伸びる（線のスタートから 0.6秒後 に開始）
+      // 1. ブロックの右端
       hudTimeline.to(timeBlockRef.current, {
         right: "0%",
         duration: 0.4,
         ease: "power2.inOut",
       }, "topLineStart+=0.6");
 
-      // 2. ブロックの「左端」が縮む（線のスタートから 0.8秒後 に開始）
-      // ⇒ 0.8秒 + 0.4秒 = 1.2秒（線のアニメーション完了と1ミリ秒のズレもなく同時に完了する）
+      // 2. ブロックの左端
       hudTimeline.to(timeBlockRef.current, {
         left: "100%",
         duration: 0.4,
         ease: "power2.inOut",
       }, "topLineStart+=0.8");
 
-      // 3. 文字の表示（左端の移動と完全に同期）
+      // 3. 文字の表示（左端の移動と同期）
       hudTimeline.to(timeTextRef.current, {
         clipPath: "inset(0% 0% 0% 0%)",
         duration: 0.4,
@@ -121,14 +121,12 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
       const dashLength = 15;
 
       // 初期位置：dashLength
-      // 切れ目の長さ分だけオフセットをプラスにすることで、パスの始点より「15px手前（画面外）」に切れ目を待機させます。
       gsap.set(leftDashRef.current, {
         strokeDasharray: `${dashLength} ${leftLineLength}`,
         strokeDashoffset: dashLength,
       });
 
       // 終点位置：-leftLineLength
-      // オフセットをマイナス全長分にすることで、パスの終点より「後ろ（画面外）」まで完全に移動し切るようにします。
       gsap.to(leftDashRef.current, {
         strokeDashoffset: -leftLineLength,
         duration: 3.0,
@@ -139,7 +137,6 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
       });
 
       // --- 下部メジャー（目盛り）の波及アニメーション ---
-      // 中央を基点に上下へ伸びる
       gsap.set(ticksRef.current, { scaleY: 0, transformOrigin: "center center" });
 
       hudTimeline.to(ticksRef.current, {
@@ -150,6 +147,31 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
           amount: 0.5,
           from: "center",
         }
+      }, "topLineStart+=0.4");
+
+      // --- 右側：三角形ナビゲーションの交差フェードイン ---
+      // 1. 内側（黒塗り・左向き）
+      hudTimeline.fromTo(innerTrianglesRef.current, {
+        y: 20,
+        opacity: 0,
+      }, {
+        y: 0,
+        opacity: 1,
+        duration: 0.6,
+        ease: "power2.out",
+        stagger: { each: 0.1, from: "end" }, // 下（配列の最後）から順番に出現
+      }, "topLineStart+=0.4");
+
+      // 2. 外側（線のみ・右向き）
+      hudTimeline.fromTo(outerTrianglesRef.current, {
+        y: -20,
+        opacity: 0,
+      }, {
+        y: 0,
+        opacity: 1,
+        duration: 0.6,
+        ease: "power2.out",
+        stagger: { each: 0.1, from: "start" }, // 上（配列の最初）から順番に出現
       }, "topLineStart+=0.4");
 
     });
@@ -241,7 +263,6 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
           <div
             ref={timeBlockRef}
             className="absolute inset-0 bg-[#1A1B25] z-10"
-          // ※style={{ margin: '-2px -4px' }} は削除しました
           ></div>
 
           <div
@@ -265,12 +286,11 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
             stroke="#1A1B25"
             strokeWidth="0.5"
           />
-          {/* 白の切れ目（ベースの線を上書きして削る） */}
           <path
             ref={leftDashRef}
             d={leftPathData}
             fill="none"
-            stroke="#ffffff" // 背景色と同じ白
+            stroke="#ffffff"
             // ベースの線より少しだけ太くすることで、アンチエイリアスのグレーのフチが残るのを防止
             strokeWidth="1.0"
           />
@@ -281,19 +301,36 @@ export function HUD({ cameraPosition, cameraRotation }: HUDProps) {
 
 
       {/* Right Edge: Triangle Markers */}
-      <div className="absolute right-5 top-[27%] flex flex-col space-y-4 text-[8px] opacity-35">
-        <div className="flex items-center justify-end">
-          <span className="w-[4.5px] h-[4.5px] border-r border-t border-black transform rotate-45"></span>
+      <div className="absolute right-6 top-1/2 -translate-y-1/2 flex gap-2 opacity-60">
+
+        <div className="flex flex-col space-y-4 mt-[72px]">
+          {[0, 1, 2, 3].map((i) => (
+            <svg
+              key={`inner-${i}`}
+              // @ts-ignore
+              ref={(el) => (innerTrianglesRef.current[i] = el)}
+              width="6" height="8" viewBox="0 0 6 8"
+              className="overflow-visible"
+            >
+              <polygon points="6,0 6,8 0,4" fill="#1A1B25" />
+            </svg>
+          ))}
         </div>
-        <div className="flex items-center justify-end">
-          <span className="w-[4.5px] h-[4.5px] border-r border-t border-black transform rotate-45"></span>
+
+        <div className="flex flex-col space-y-4">
+          {[0, 1, 2, 3].map((i) => (
+            <svg
+              key={`outer-${i}`}
+              // @ts-ignore
+              ref={(el) => (outerTrianglesRef.current[i] = el)}
+              width="6" height="8" viewBox="0 0 6 8"
+              className="overflow-visible"
+            >
+              <polygon points="0,0 0,8 6,4" fill="none" stroke="#1A1B25" strokeWidth="0.8" />
+            </svg>
+          ))}
         </div>
-        <div className="flex items-center justify-end">
-          <span className="w-[4.5px] h-[4.5px] bg-black transform rotate-45"></span>
-        </div>
-        <div className="flex items-center justify-end">
-          <span className="w-[4.5px] h-[4.5px] border-r border-t border-black transform rotate-45"></span>
-        </div>
+
       </div>
 
       {/* Bottom: Angle Measure */}

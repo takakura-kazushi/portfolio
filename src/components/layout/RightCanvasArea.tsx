@@ -20,7 +20,6 @@ export default function RightCanvasArea() {
   };
 
   return (
-    // flex-1 で親のflexコンテナの余った幅をすべて占有します
     <div className="flex-1 relative h-full bg-white">
 
       {/* HUDレイヤー */}
@@ -30,7 +29,6 @@ export default function RightCanvasArea() {
       <div className="absolute inset-0 z-0">
         <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
           <color attach="background" args={["#ffffff"]} />
-          {/* 光の計算を行わない軽量なマテリアルを使用しているため、Lightは不要です */}
           <Polyhedron />
           {/* <OrbitControls enableZoom={true} enablePan={false} /> */}
           <TrackballControls
