@@ -1,6 +1,6 @@
 import { useRef, useMemo } from "react";
 import { useFrame, extend } from "@react-three/fiber";
-import { shaderMaterial } from "@react-three/drei";
+import { shaderMaterial, Line } from "@react-three/drei";
 import * as THREE from "three";
 
 const GradientMaterial = shaderMaterial(
@@ -59,6 +59,55 @@ extend({ GradientMaterial });
 export function Polyhedron() {
   const groupRef = useRef<THREE.Group>(null);
 
+  // ジオメトリから実際の正二十面体の頂点座標（最もYが高い頂点）を取得
+  const profileVertex = useMemo(() => {
+    const tempGeo = new THREE.IcosahedronGeometry(1.3, 0);
+    const pos = tempGeo.getAttribute("position");
+    let maxY = -Infinity;
+    let vx = 0, vy = 0, vz = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y > maxY) {
+        maxY = y;
+        vx = pos.getX(i);
+        vy = y;
+        vz = pos.getZ(i);
+      }
+    }
+    tempGeo.dispose();
+    return new THREE.Vector3(vx, vy, vz);
+  }, []);
+
+  // カメラアンカーの位置を頂点方向から幾何学的に計算
+  // 頂点の延長線上（距離4.5）に配置し、画面の右上方向にオフセット
+  const { cameraAnchorPos, lookAnchorPos } = useMemo(() => {
+    // 頂点方向の単位ベクトル
+    const dir = profileVertex.clone().normalize();
+
+    // 頂点に対する「右」と「上」方向を算出
+    const worldUp = new THREE.Vector3(0, 0, 1);
+    let right = new THREE.Vector3().crossVectors(dir, worldUp).normalize();
+    if (right.lengthSq() < 0.001) {
+      right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(1, 0, 0)).normalize();
+    }
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+
+    // カメラ位置: 頂点方向に4.5の距離 + 左にオフセット + 上にオフセット
+    // → 多面体が画面右下に来る構図
+    const camPos = dir.clone().multiplyScalar(4.5)
+      .add(right.clone().multiplyScalar(-1.8))
+      .add(up.clone().multiplyScalar(1.2));
+
+    // 注視点: 原点（多面体の中心）
+    // → 常に多面体の中心を見る。オフセットなしでシンプルに。
+    const lookPos = new THREE.Vector3(0, 0, 0);
+
+    return {
+      cameraAnchorPos: [camPos.x, camPos.y, camPos.z] as [number, number, number],
+      lookAnchorPos: [lookPos.x, lookPos.y, lookPos.z] as [number, number, number],
+    };
+  }, [profileVertex]);
+
   // フラット法線を持つ非インデックスジオメトリを一度だけ生成
   const solidGeo = useMemo(() => {
     const geo = new THREE.IcosahedronGeometry(1.3, 0).toNonIndexed();
@@ -87,6 +136,23 @@ export function Polyhedron() {
       <mesh geometry={wireGeo}>
         <meshBasicMaterial color="#ffffff" wireframe transparent opacity={0.5} />
       </mesh>
+
+      {/* ── デバッグ: 頂点に赤い球 ── */}
+      <mesh position={[profileVertex.x, profileVertex.y, profileVertex.z]}>
+        <sphereGeometry args={[0.06, 16, 16]} />
+        <meshBasicMaterial color="red" />
+      </mesh>
+
+      {/* ── デバッグ: 中心→頂点を結ぶ線 ── */}
+      <Line
+        points={[[0, 0, 0], [profileVertex.x, profileVertex.y, profileVertex.z]]}
+        color="red"
+        lineWidth={1.5}
+      />
+
+      {/* ── ロックオン用アンカー（グループの子 → 回転に追従） ── */}
+      <object3D name="camera-anchor-profile" position={cameraAnchorPos} />
+      <object3D name="look-anchor-profile" position={lookAnchorPos} />
     </group>
   );
 }

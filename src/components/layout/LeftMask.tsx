@@ -2,8 +2,17 @@
 
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
+import { usePortfolio, SectionId } from "@/components/contexts/PortfolioContext";
+
+const MENU_ITEMS: { id: SectionId; label: string }[] = [
+  { id: "profile", label: "01 | PROFILE" },
+  { id: "works", label: "02 | WORKS" },
+  { id: "skills", label: "03 | SKILLS" },
+  { id: "contact", label: "04 | CONTACT" },
+];
 
 export function LeftMask() {
+  const { activeSection, setActiveSection } = usePortfolio();
   const containerRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const topLineRef = useRef<HTMLDivElement>(null);
@@ -18,6 +27,9 @@ export function LeftMask() {
 
   // 左端マーカー（縦ライン）
   const markerRef = useRef<HTMLDivElement>(null);
+
+  // メニューリスト全体のref
+  const menuListRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -38,6 +50,7 @@ export function LeftMask() {
         if (!el) return;
         gsap.set(el, { opacity: 0, scaleX: 0, transformOrigin: "left" });
       });
+      gsap.set(menuListRef.current?.children || [], { opacity: 0, y: 10 });
 
       // ── Phase 1（0s〜0.12s）: 左端マーカーが上から伸びる ────────────
       tl.to(markerRef.current, {
@@ -96,6 +109,17 @@ export function LeftMask() {
         ease: "power2.inOut",
       }, 1.05);
 
+      // ── Phase 7（1.3s〜）: メニューが順番にフェードイン ─────────────────────
+      if (menuListRef.current) {
+        tl.to(menuListRef.current.children, {
+          opacity: 1,
+          y: 0,
+          duration: 0.4,
+          stagger: 0.1, // 0.1秒ずつズラして表示
+          ease: "power2.out",
+        }, 1.3);
+      }
+
     }, containerRef);
 
     return () => ctx.revert();
@@ -151,6 +175,23 @@ export function LeftMask() {
           </div>
 
         </div>
+        {/* --- 新規追加：ナビゲーションメニュー --- */}
+        <ul ref={menuListRef} className="mt-8 flex flex-col gap-3 relative z-30">
+          {MENU_ITEMS.map((item) => (
+            <li key={item.id}>
+              <button
+                onClick={() => setActiveSection(activeSection === item.id ? null : item.id)}
+                className={`text-xs tracking-widest font-mono transition-all duration-300 hover:tracking-[0.2em] flex items-center gap-2 ${activeSection === item.id ? "text-black font-bold" : "text-gray-500 hover:text-black"
+                  }`}
+              >
+                {/* アクティブ時に左に付く小さなマーカー */}
+                <span className={`w-1 h-1 bg-black transition-opacity ${activeSection === item.id ? "opacity-100" : "opacity-0"}`} />
+                {item.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {/* -------------------------------------- */}
 
         {/* 下の短い装飾線 */}
         <div ref={bottomLineRef} className="w-8 h-[0.5px] bg-black mt-6 opacity-70"></div>
